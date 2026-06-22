@@ -1,0 +1,130 @@
+{
+  "name": "code-quiz",
+  "displayName": "Code Quiz \u2013 Do You Actually Understand This?",
+  "description": "Watches your code in real time and asks Socratic questions to verify you understand what you wrote. Not autocomplete. Not explanations. Questions.",
+  "version": "0.1.0",
+  "publisher": "your-publisher-name",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Education",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "learning",
+    "quiz",
+    "socratic",
+    "debugging",
+    "education"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeQuiz.openPanel",
+        "title": "Code Quiz: Open Panel",
+        "category": "Code Quiz"
+      },
+      {
+        "command": "codeQuiz.toggleActive",
+        "title": "Code Quiz: Toggle On/Off",
+        "category": "Code Quiz"
+      },
+      {
+        "command": "codeQuiz.showHistory",
+        "title": "Code Quiz: Show Session History",
+        "category": "Code Quiz"
+      },
+      {
+        "command": "codeQuiz.quizNow",
+        "title": "Code Quiz: Quiz Me On This File Now",
+        "category": "Code Quiz"
+      }
+    ],
+    "configuration": {
+      "title": "Code Quiz",
+      "properties": {
+        "codeQuiz.triggerOnPaste": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask a question when a large block of code is pasted (likely copied without understanding)."
+        },
+        "codeQuiz.triggerOnFunctionComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask a question when a new function is completed."
+        },
+        "codeQuiz.debounceSeconds": {
+          "type": "number",
+          "default": 6,
+          "description": "Seconds of inactivity after typing before a question is triggered."
+        },
+        "codeQuiz.professorMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Professor Mode: never reveals the answer, only asks follow-up questions."
+        },
+        "codeQuiz.difficulty": {
+          "type": "string",
+          "enum": [
+            "gentle",
+            "standard",
+            "rigorous"
+          ],
+          "default": "standard",
+          "markdownDescription": "`gentle` = conceptual questions. `standard` = mix. `rigorous` = edge cases and gotchas."
+        },
+        "codeQuiz.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your Google Gemini API key from aistudio.google.com"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codeQuiz",
+          "title": "Code Quiz",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "codeQuiz": [
+        {
+          "type": "webview",
+          "id": "codeQuiz.sidebarView",
+          "name": "Quiz"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "codeQuiz.quizNow",
+          "group": "codeQuiz",
+          "when": "editorTextFocus"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}
