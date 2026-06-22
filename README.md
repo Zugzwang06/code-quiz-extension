@@ -1,4 +1,4 @@
-# 🧠 Code Quiz — Do You Actually Understand This?
+# Code Quiz — Do You Actually Understand This?
 
 A VS Code extension that watches your code in real time and quizzes you on it — instead of explaining, autocompleting, or fixing it for you.
 
@@ -70,7 +70,7 @@ Without a key, the extension still runs — it falls back to a small set of buil
 
 ---
 
-## Professor Mode 🎓
+## Professor Mode 
 
 With Professor Mode on, every "give me the answer" path — hints, follow-up requests — gets intercepted and replaced with another probing question instead. The goal is to make the *aha* moment of finding your own bug or gap in understanding the only way out, not a button click away.
 
