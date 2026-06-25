@@ -62,7 +62,9 @@ export async function generateQuestions(
   fileName: string,
   difficulty: Difficulty,
   recentTopics: string[],
-  scope: 'snippet' | 'full_file' = 'snippet'
+  scope: 'snippet' | 'full_file' = 'snippet',
+  memoryContext: string = '',
+  weakSpots: Array<{ category: string; accuracy: number }> = []
 ): Promise<Array<{ question: string; category: QuestionCategory; codeSnippet: string }> | null> {
 
   const difficultyGuide: Record<Difficulty, string> = {
@@ -89,8 +91,9 @@ export async function generateQuestions(
     'Each question must target a DIFFERENT part or concept of the code.',
     difficultyGuide[difficulty],
     avoidTopics,
+    memoryContext,
     'Respond with valid JSON only. No preamble, no markdown fences.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   const prompt = `${scopeIntro}
 

@@ -2,14 +2,15 @@ import * as vscode from 'vscode';
 import { QuizPanel } from './panel';
 import { CodeWatcher, TriggerEvent } from './watcher';
 import { SessionManager } from './session';
+import { MemoryManager } from './memory';
 import { generateQuestions, verifyAnswer, generateHint } from './claude';
 import { QuizQuestion, Difficulty } from './types';
 
 let quizPanel: QuizPanel;
 let codeWatcher: CodeWatcher;
 let session: SessionManager;
+let memory: MemoryManager;
 
-// Queue of pending questions for the current batch
 let questionQueue: QuizQuestion[] = [];
 let currentQuestionIndex = 0;
 
@@ -25,6 +26,7 @@ export function activate(context: vscode.ExtensionContext) {
   console.log('Code Quiz is active');
 
   session = new SessionManager();
+  memory = new MemoryManager(context);
 
   quizPanel = new QuizPanel(context.extensionUri);
   context.subscriptions.push(
@@ -43,6 +45,8 @@ export function activate(context: vscode.ExtensionContext) {
           payload: { active: codeWatcher?.isActive() ?? true, professorMode },
         });
         quizPanel.send({ type: 'stats', payload: session.getStats() });
+        // Send long-term weak spots on startup
+        quizPanel.send({ type: 'weakSpots', payload: memory.getAllTimeStats() });
         break;
 
       case 'toggleActive':
@@ -69,7 +73,7 @@ export function activate(context: vscode.ExtensionContext) {
           console.log('[CodeQuiz] verdict:', JSON.stringify(verdict));
         } catch (err) {
           console.error('[CodeQuiz] verifyAnswer threw:', err);
-          quizPanel.send({ type: 'verdictResult', payload: { correct: false, partial: false, explanation: 'Error checking answer: ' + String(err), followUp: null, historyItem: null, hasNext: false } });
+          quizPanel.send({ type: 'verdictResult', payload: { correct: false, partial: false, explanation: 'Error: ' + String(err), followUp: null, historyItem: null, hasNext: false } });
           break;
         }
 
@@ -81,6 +85,10 @@ export function activate(context: vscode.ExtensionContext) {
         const result = verdict.correct ? 'correct' : (verdict.explanation.toLowerCase().includes('partial') ? 'partial' : 'incorrect');
         session.updateResult(id, result);
         session.updateVerdict(id, verdict);
+
+        // ── Record to long-term memory ──────────────────────────────────────
+        const stats = session.getStats();
+        await memory.record(q.language, q.category, result, q.question, stats.streak);
 
         const updatedQ = session.getHistory().find(q => q.id === id);
         const hasNext = currentQuestionIndex < questionQueue.length - 1;
@@ -97,7 +105,9 @@ export function activate(context: vscode.ExtensionContext) {
             queueProgress: `${currentQuestionIndex + 1} of ${questionQueue.length}`,
           },
         });
-        quizPanel.send({ type: 'stats', payload: session.getStats() });
+        quizPanel.send({ type: 'stats', payload: stats });
+        // Refresh weak spots after every answer
+        quizPanel.send({ type: 'weakSpots', payload: memory.getAllTimeStats() });
         break;
       }
 
@@ -107,8 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
           const nextQ = questionQueue[currentQuestionIndex];
           quizPanel.send({ type: 'newQuestion', payload: { ...nextQ, queueProgress: `${currentQuestionIndex + 1} of ${questionQueue.length}` } });
         } else {
-          // All questions done — show summary
-          quizPanel.send({ type: 'quizComplete', payload: session.getStats() });
+          quizPanel.send({ type: 'quizComplete', payload: { ...session.getStats(), weakSpots: memory.getWeakSpots(questionQueue[0]?.language, 3) } });
         }
         break;
       }
@@ -116,6 +125,12 @@ export function activate(context: vscode.ExtensionContext) {
       case 'skipQuestion': {
         const { id } = msg.payload as { id: string };
         session.updateResult(id, 'skipped');
+
+        const skippedQ = session.getHistory().find(q => q.id === id);
+        if (skippedQ) {
+          await memory.record(skippedQ.language, skippedQ.category, 'skipped', skippedQ.question, 0);
+        }
+
         quizPanel.send({ type: 'stats', payload: session.getStats() });
 
         currentQuestionIndex++;
@@ -123,7 +138,7 @@ export function activate(context: vscode.ExtensionContext) {
           const nextQ = questionQueue[currentQuestionIndex];
           quizPanel.send({ type: 'newQuestion', payload: { ...nextQ, queueProgress: `${currentQuestionIndex + 1} of ${questionQueue.length}` } });
         } else {
-          quizPanel.send({ type: 'quizComplete', payload: session.getStats() });
+          quizPanel.send({ type: 'quizComplete', payload: { ...session.getStats(), weakSpots: memory.getWeakSpots(questionQueue[0]?.language, 3) } });
         }
         break;
       }
@@ -181,6 +196,20 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.commands.executeCommand('workbench.view.extension.codeQuiz');
     })
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('codeQuiz.clearMemory', async () => {
+      const confirm = await vscode.window.showWarningMessage(
+        'Clear all Code Quiz learning history? This cannot be undone.',
+        'Clear', 'Cancel'
+      );
+      if (confirm === 'Clear') {
+        await memory.clearMemory();
+        quizPanel.send({ type: 'weakSpots', payload: memory.getAllTimeStats() });
+        vscode.window.showInformationMessage('Code Quiz: Learning history cleared.');
+      }
+    })
+  );
 }
 
 async function handleTrigger(event: TriggerEvent) {
@@ -193,8 +222,14 @@ async function handleTrigger(event: TriggerEvent) {
   vscode.commands.executeCommand('workbench.view.extension.codeQuiz');
   quizPanel.send({ type: 'loading', payload: { message: 'Generating questions...' } });
 
+  await memory.incrementSession(event.language);
+
   const recentTopics = session.getRecentTopics(5);
   const scope: 'snippet' | 'full_file' = event.reason === 'manual' ? 'full_file' : 'snippet';
+
+  // Build personalised context from long-term memory
+  const memoryContext = memory.buildPromptContext(event.language);
+  const weakSpots = memory.getWeakSpots(event.language, 3);
 
   let rawQuestions: Array<{ question: string; category: string; codeSnippet: string }> | null = null;
 
@@ -207,7 +242,9 @@ async function handleTrigger(event: TriggerEvent) {
         event.fileName,
         difficulty,
         recentTopics,
-        scope
+        scope,
+        memoryContext,
+        weakSpots
       );
       console.log('[CodeQuiz] generateQuestions result count:', rawQuestions?.length ?? 0);
     } catch (err) {
@@ -217,12 +254,10 @@ async function handleTrigger(event: TriggerEvent) {
     console.log('[CodeQuiz] No API key — using fallback.');
   }
 
-  // Fallback if no API key or AI failed
   if (!rawQuestions || rawQuestions.length === 0) {
     rawQuestions = getFallbackQuestions(event.language);
   }
 
-  // Build question objects and queue them
   questionQueue = rawQuestions.map(q => ({
     id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     timestamp: Date.now(),
@@ -236,20 +271,19 @@ async function handleTrigger(event: TriggerEvent) {
     result: 'pending' as const,
   }));
 
-  // Add all to session
   questionQueue.forEach(q => session.addQuestion(q));
   currentQuestionIndex = 0;
 
-  // Send first question
   const first = questionQueue[0];
   quizPanel.send({ type: 'newQuestion', payload: { ...first, queueProgress: `1 of ${questionQueue.length}` } });
   quizPanel.send({ type: 'stats', payload: session.getStats() });
+  quizPanel.send({ type: 'weakSpots', payload: memory.getAllTimeStats() });
 }
 
 function getFallbackQuestions(language: string) {
   const map: Record<string, Array<{ question: string; category: string; codeSnippet: string }>> = {
     javascript: [
-      { question: 'What happens to this code if the input is null or undefined?', category: 'edge_case', codeSnippet: '// (the code you just wrote)' },
+      { question: 'What happens if the input is null or undefined?', category: 'edge_case', codeSnippet: '// (the code you just wrote)' },
       { question: 'Could this code throw an unhandled exception? In what scenario?', category: 'bug_risk', codeSnippet: '// (the code you just wrote)' },
       { question: 'What is the time complexity of this code?', category: 'complexity', codeSnippet: '// (the code you just wrote)' },
     ],

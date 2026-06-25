@@ -8,23 +8,23 @@ export interface QuizQuestion {
   triggerReason: TriggerReason;
   language: string;
   fileName: string;
-  codeSnippet: string;        // the chunk of code the question is about
+  codeSnippet: string;
   question: string;
-  followUpQuestion?: string;  // professor mode follow-up
+  followUpQuestion?: string;
   category: QuestionCategory;
   difficulty: Difficulty;
-  answer?: string;            // user's typed answer
-  aiVerdict?: AiVerdict;     // what Claude thinks of the answer
+  answer?: string;
+  aiVerdict?: AiVerdict;
   result: AnswerResult;
 }
 
 export type QuestionCategory =
-  | 'intent'        // what does this code actually do?
-  | 'edge_case'     // what happens when X?
-  | 'complexity'    // what's the time/space complexity?
-  | 'bug_risk'      // what could go wrong here?
-  | 'alternative'   // why this approach and not Y?
-  | 'side_effect';  // what else does this affect?
+  | 'intent'
+  | 'edge_case'
+  | 'complexity'
+  | 'bug_risk'
+  | 'alternative'
+  | 'side_effect';
 
 export interface AiVerdict {
   correct: boolean;
@@ -40,6 +40,44 @@ export interface SessionStats {
   skipped: number;
   streak: number;
   topicsCovered: string[];
+}
+
+// ─── Long-term memory types ────────────────────────────────────────────────
+
+export interface CategoryRecord {
+  correct: number;
+  incorrect: number;
+  partial: number;
+  skipped: number;
+  lastSeen: number; // timestamp
+}
+
+export interface LanguageRecord {
+  categories: Record<QuestionCategory, CategoryRecord>;
+  totalSessions: number;
+  lastActive: number;
+}
+
+export interface LongTermMemory {
+  // language -> category -> record
+  byLanguage: Record<string, LanguageRecord>;
+  // flat list of the last N completed questions for context
+  recentHistory: Array<{
+    timestamp: number;
+    language: string;
+    category: QuestionCategory;
+    result: AnswerResult;
+    question: string;
+  }>;
+  allTimeBestStreak: number;
+  totalQuestionsAnswered: number;
+}
+
+export interface WeakSpot {
+  category: QuestionCategory;
+  language: string;
+  accuracy: number; // 0–1
+  count: number;    // total attempts
 }
 
 export interface WebviewMessage {
@@ -65,6 +103,8 @@ export interface ExtensionMessage {
     | 'activeState'
     | 'professorRefusal'
     | 'quizComplete'
+    | 'weakSpots'
     | 'hint';
   payload?: unknown;
 }
+

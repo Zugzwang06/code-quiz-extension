@@ -173,6 +173,11 @@ export class QuizPanel implements vscode.WebviewViewProvider {
     <div class="section-head">This session</div>
     <div id="historyList"></div>
   </div>
+
+  <div id="weakSpotsSection" style="margin-top:4px">
+    <div class="section-head" style="margin-bottom:6px">Your learning profile</div>
+    <div style="font-size:11px;color:var(--muted);padding:4px 0">Answer questions to build your profile.</div>
+  </div>
 </div>
 
 <script>
@@ -359,20 +364,87 @@ window.addEventListener('message', e => {
     case 'quizComplete':
       showSummary(payload);
       break;
+    case 'weakSpots':
+      renderWeakSpots(payload);
+      break;
   }
 });
 
 function showSummary(stats) {
   const pct = stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
   const emoji = pct >= 80 ? '🎉' : pct >= 50 ? '👍' : '📚';
-  document.getElementById('main').innerHTML = \`
-    <div style="text-align:center;padding:24px 12px">
-      <div style="font-size:32px;margin-bottom:12px">\${emoji}</div>
-      <div style="font-size:15px;font-weight:700;margin-bottom:6px">Quiz complete</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:20px">\${stats.correct} correct, \${stats.incorrect + stats.skipped} missed out of \${stats.total} questions</div>
-      <div style="font-size:24px;font-weight:700;color:var(--accent);margin-bottom:20px">\${pct}%</div>
-      <button class="btn btn-primary" onclick="vscode.postMessage({type:'ready'})">Done</button>
+
+  let weakHtml = '';
+  if (stats.weakSpots && stats.weakSpots.length > 0) {
+    weakHtml = \`<div style="margin-top:16px;text-align:left">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px">Your weak spots</div>
+      \${stats.weakSpots.map(w => \`
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 10px;margin-bottom:6px">
+          <span style="font-size:11px;color:var(--text)">\${w.category.replace('_',' ')}</span>
+          <span style="font-size:11px;color:\${w.accuracy < 0.5 ? 'var(--danger)' : w.accuracy < 0.75 ? 'var(--warn)' : 'var(--success)'};font-weight:600">\${Math.round(w.accuracy*100)}%</span>
+        </div>
+      \`).join('')}
     </div>\`;
+  }
+
+  document.getElementById('main').innerHTML = \`
+    <div style="padding:20px 12px">
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="font-size:28px;margin-bottom:8px">\${emoji}</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px">Session complete</div>
+        <div style="font-size:12px;color:var(--muted)">\${stats.correct} correct · \${stats.partial || 0} partial · \${(stats.incorrect||0) + (stats.skipped||0)} missed</div>
+        <div style="font-size:28px;font-weight:700;color:var(--accent);margin:10px 0">\${pct}%</div>
+      </div>
+      \${weakHtml}
+      <button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="vscode.postMessage({type:'ready'})">Done</button>
+    </div>\`;
+}
+
+function renderWeakSpots(data) {
+  const section = document.getElementById('weakSpotsSection');
+  if (!section) return;
+
+  if (!data || data.totalAnswered === 0) {
+    section.innerHTML = \`<div style="font-size:11px;color:var(--muted);padding:8px 0">Answer questions to build your profile.</div>\`;
+    return;
+  }
+
+  const spots = data.weakSpots || [];
+  const total = data.totalAnswered;
+  const best = data.bestStreak;
+
+  let html = \`<div style="display:flex;gap:8px;margin-bottom:10px">
+    <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center">
+      <div style="font-size:16px;font-weight:700;color:var(--accent)">\${total}</div>
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">All time</div>
+    </div>
+    <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center">
+      <div style="font-size:16px;font-weight:700;color:var(--success)">\${best}</div>
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">Best streak</div>
+    </div>
+  </div>\`;
+
+  if (spots.length > 0) {
+    html += \`<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px">Weak spots</div>\`;
+    html += spots.map(w => {
+      const pct = Math.round(w.accuracy * 100);
+      const color = pct < 50 ? 'var(--danger)' : pct < 75 ? 'var(--warn)' : 'var(--success)';
+      const barW = Math.max(4, pct);
+      return \`<div style="margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+          <span style="font-size:11px;color:var(--text)">\${w.category.replace('_',' ')} <span style="color:var(--muted);font-size:10px">(\${w.language})</span></span>
+          <span style="font-size:11px;font-weight:600;color:\${color}">\${pct}%</span>
+        </div>
+        <div style="background:var(--border);border-radius:3px;height:3px">
+          <div style="background:\${color};width:\${barW}%;height:100%;border-radius:3px;transition:width 0.4s"></div>
+        </div>
+      </div>\`;
+    }).join('');
+  } else {
+    html += \`<div style="font-size:11px;color:var(--muted)">No weak spots yet — keep answering!</div>\`;
+  }
+
+  section.innerHTML = html;
 }
 
 vscode.postMessage({ type: 'ready' });

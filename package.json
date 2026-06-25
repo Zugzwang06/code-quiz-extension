@@ -44,6 +44,11 @@
         "command": "codeQuiz.quizNow",
         "title": "Code Quiz: Quiz Me On This File Now",
         "category": "Code Quiz"
+      },
+      {
+        "command": "codeQuiz.clearMemory",
+        "title": "Code Quiz: Clear Learning History",
+        "category": "Code Quiz"
       }
     ],
     "configuration": {
